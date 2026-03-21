@@ -11,5 +11,5 @@ dataset_path = '../../dataset/'
 
 if dataset_choice == CHB_MIT and classification_type == 'binary':
     eeg_data, eeg_label = lp.load_chbmit_data(dataset_path)
-    history = MT.binary_model(eeg_data, eeg_label)
+    history = MT.binary_model(eeg_data, eeg_label, dataset_choice)
     Vs.Visualization_plots(history)

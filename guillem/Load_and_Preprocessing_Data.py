@@ -169,10 +169,4 @@ def load_chbmit_data(dataset_path):
     print('Ratio of signals with seizures: {:.3f}'.format(array_n.size / array_is_sz.size))
     array_signals = array_signals[:, :, :, np.newaxis]
 
-    from sklearn import model_selection
-    X_train, X_val, y_train, y_val = model_selection.train_test_split(
-        array_signals, array_is_sz, test_size=0.0,
-        stratify=(array_is_sz > 0))
-
-    del array_signals, array_is_sz
-    return X_train, y_train
+    return array_signals, array_is_sz
