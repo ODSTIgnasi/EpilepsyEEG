@@ -46,10 +46,6 @@ def load_chbmit_data(dataset_path):
     files_test = []
     for l in test_patient_str:
         files_test = files_test + glob.glob(path2pt+'/chb{}/*.edf'.format(l))
-    
-    logger = logging.getLogger(__name__)
-    fh = logging.FileHandler('read_files.log')
-    logger.addHandler(fh)
 
     time_window = 8
     time_step = 4
@@ -151,7 +147,6 @@ def load_chbmit_data(dataset_path):
             else:
                 to_log += 'Not appropriate channel labels. Reading skipped.'.format(n)
 
-            logger.info(to_log)
             temp_edf.close()
 
             if n % 10 == 0:

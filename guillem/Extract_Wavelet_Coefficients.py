@@ -1,22 +1,28 @@
-import pywt  # type: ignore
-import numpy as np
 import pywt
+import numpy as np
 
-
-#Extracting approximation and Detailed Coefficients from signal
 
 def extract_coeffs_BONN_CHB(eeg_data, level=3):
+    """
+    Extract per-subband energy from all channels.
+    18 channels x (level+1) subbands = 18 x 4 = 72 features per sample.
+    """
     coeffs_list = []
 
     for i in range(eeg_data.shape[0]):
-        # Select the EEG signal from the ith trial
-        signal = eeg_data[i, :, 0]
+        channel_coeffs = []
 
-        # Apply DWT on the signal
-        coeffs = pywt.wavedec(signal, 'db1', level=level)  # 'db1' refers to Daubechies wavelet
+        for ch in range(eeg_data.shape[1]):  # 18 channels
+            signal = eeg_data[i, ch, :]
 
-        # Flatten the coefficients and append to the list
-        coeffs_flattened = np.concatenate(coeffs)
-        coeffs_list.append(coeffs_flattened)
+            # DWT decomposition into level+1 subbands
+            coeffs = pywt.wavedec(signal, 'db1', level=level)
 
-    return np.array(coeffs_list)
+            # Take the ENERGY of each subband (1 value per subband)
+            # rather than all raw coefficients (hundreds of values)
+            subband_energies = [np.sum(c**2) for c in coeffs]  # 4 values per channel
+            channel_coeffs.extend(subband_energies)
+
+        coeffs_list.append(channel_coeffs)
+
+    return np.array(coeffs_list)  # shape: (n_samples, 72)
