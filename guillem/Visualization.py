@@ -11,7 +11,9 @@ def Visualization_plots(history):
     plt.ylabel('accuracy')
     plt.xlabel('epoch')
     plt.legend(['train', 'Validation'], loc='upper left')
-    plt.show()
+    plt.savefig("plots/accuracy.png")
+    plt.close()
+    
     # summarize history for loss
     plt.plot(history.history['loss'])
     plt.plot(history.history['val_loss'])
@@ -19,4 +21,5 @@ def Visualization_plots(history):
     plt.ylabel('loss')
     plt.xlabel('epoch')
     plt.legend(['train', 'Validation'], loc='upper left')
-    plt.show()
+    plt.savefig("plots/loss.png")
+    plt.close()

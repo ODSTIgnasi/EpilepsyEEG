@@ -40,7 +40,8 @@ def plot_roc_per_fold(y_true, y_pred):
     plt.title('Receiver operating characteristic', fontdict={'fontsize': 20, 'fontweight': 'bold'})
     # Instead of fontdict, use prop keyword argument
     plt.legend(loc="lower right", prop={'size': 20, 'weight': 'bold'})
-    plt.show()
+    plt.savefig("roc_binary.png")
+    plt.close()
 
 def plot_multiclass_roc(y_true, y_prob):
     """
@@ -79,7 +80,8 @@ def plot_multiclass_roc(y_true, y_prob):
     plt.title('Receiver operating characteristic', fontdict={'fontsize': 20, 'fontweight': 'bold'})
     # Instead of fontdict, use prop keyword argument
     plt.legend(loc="lower right", prop={'size': 10, 'weight': 'bold'})
-    plt.show()    
+    plt.savefig("roc_multiclass.png")
+    plt.close()
 
 #Code for Binary Classification of proposed model
 def binary_model(data,label,dataset_choice):
@@ -127,7 +129,7 @@ def binary_model(data,label,dataset_choice):
             EEG_Test = features_Test.reshape(features_Test.shape[0], 72, 1)
             
 
-        # Define CNN-LSTM model
+# Define CNN-LSTM model
         model = Sequential()
         model.add(Conv1D(filters=16, kernel_size=2, input_shape=(EEG_Train.shape[1], 1), strides=2, padding="valid"))
         model.add(BatchNormalization(axis=2, momentum=0.9))
@@ -138,19 +140,19 @@ def binary_model(data,label,dataset_choice):
         model.add(Conv1D(filters=64, kernel_size=2, strides=2, padding="valid"))
         model.add(BatchNormalization(axis=2, momentum=0.9))
         model.add(Activation('relu'))
-        model.add(MaxPooling1D(pool_size=3, strides=2, padding="valid"))
+        model.add(MaxPooling1D(pool_size=3, strides=2, padding="same"))  # same instead of valid
         model.add(Conv1D(filters=128, kernel_size=1, strides=1, padding="valid"))
         model.add(BatchNormalization(axis=2, momentum=0.9))
         model.add(Activation('relu'))
-        model.add(MaxPooling1D(pool_size=3, strides=2, padding="valid"))
+        model.add(MaxPooling1D(pool_size=3, strides=2, padding="same"))  # same instead of valid
         model.add(Conv1D(filters=256, kernel_size=1, strides=1, padding="valid"))
         model.add(BatchNormalization(axis=2, momentum=0.9))
         model.add(Activation('relu'))
-        model.add(MaxPooling1D(pool_size=3, strides=2, padding="valid"))
+        model.add(MaxPooling1D(pool_size=3, strides=2, padding="same"))  # same instead of valid
         model.add(Conv1D(filters=512, kernel_size=1, strides=1, padding="valid"))
         model.add(BatchNormalization(axis=2, momentum=0.9))
         model.add(Activation('relu'))
-        model.add(MaxPooling1D(pool_size=3, strides=2, padding="valid"))
+        model.add(MaxPooling1D(pool_size=3, strides=2, padding="same"))  # same instead of valid
         model.add(LSTM(200))
         model.add(Flatten())
         model.add(Dense(units=64, activation="relu", kernel_regularizer=regularizers.L2(0.0003)))
