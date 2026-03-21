@@ -87,7 +87,8 @@ def plot_multiclass_roc(y_true, y_prob):
 def binary_model(data,label,dataset_choice):
     # Parameters
     batch_size = 60
-    nb_epoch = 300
+    # nb_epoch = 300
+    nb_epoch = 10 #Set to 10 to test the pipeline
 
     # Ensure your 'data' and 'label' are loaded before this
     data = np.array(data)
@@ -165,7 +166,7 @@ def binary_model(data,label,dataset_choice):
 
 
         # Train and predict
-        history = model.fit(EEG_Train, Y_train, validation_split=0.2, batch_size=batch_size, epochs=nb_epoch, verbose=0)
+        history = model.fit(EEG_Train, Y_train, validation_split=0.2, batch_size=batch_size, epochs=nb_epoch, verbose=1)
         y_pred = model.predict(EEG_Test)
         y_pred = (y_pred > 0.5)
 
