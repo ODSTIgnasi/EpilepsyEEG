@@ -5,14 +5,13 @@ import os
 def Visualization_plots(history):
     os.makedirs("plots", exist_ok=True)
 
-    # list all data in history
     print(history.history.keys())
 
-    # summarize history for accuracy
+    # Accuracy plot
     plt.figure()
     plt.plot(history.history['acc'])
     plt.plot(history.history['val_acc'])
-    plt.title('Model Accuracy (Last Fold)')
+    plt.title('Model Accuracy — Last Fold')
     plt.ylabel('Accuracy')
     plt.xlabel('Epoch')
     plt.legend(['Train', 'Validation'], loc='upper left')
@@ -21,11 +20,11 @@ def Visualization_plots(history):
     plt.close()
     print("Saved: plots/accuracy.png")
 
-    # summarize history for loss
+    # Loss plot
     plt.figure()
     plt.plot(history.history['loss'])
     plt.plot(history.history['val_loss'])
-    plt.title('Model Loss (Last Fold)')
+    plt.title('Model Loss — Last Fold')
     plt.ylabel('Loss')
     plt.xlabel('Epoch')
     plt.legend(['Train', 'Validation'], loc='upper right')
