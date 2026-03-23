@@ -1,0 +1,118 @@
+# =========================
+# PYTHON BASICS
+# =========================
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+.env/
+.venv/
+env/
+ENV/
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# =========================
+# JUPYTER / NOTEBOOKS
+# =========================
+.ipynb_checkpoints
+
+# =========================
+# MACHINE LEARNING / DL
+# =========================
+# Model weights & checkpoints
+*.h5
+*.hdf5
+*.ckpt
+*.pt
+*.pth
+*.onnx
+checkpoints/
+models/
+saved_models/
+
+# TensorBoard logs
+runs/
+logs/
+tensorboard/
+
+# =========================
+# DATA FILES (EEG / LARGE DATA)
+# =========================
+# EEG formats (common)
+*.edf
+*.bdf
+*.gdf
+*.set
+*.fdt
+
+# General datasets
+data/
+datasets/
+raw_data/
+processed_data/
+
+# NumPy arrays
+*.npy
+*.npz
+
+# CSV / TSV (optional – uncomment if needed)
+# *.csv
+# *.tsv
+
+# =========================
+# LOGS
+# =========================
+*.log
+logs/
+*.out
+
+# =========================
+# CONFIG / SECRETS
+# =========================
+.env
+*.env
+*.json
+*.yaml
+*.yml
+
+# =========================
+# IDE / EDITORS
+# =========================
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# =========================
+# OS FILES
+# =========================
+.DS_Store
+Thumbs.db
+
+# =========================
+# CACHE / TEMP
+# =========================
+.cache/
+tmp/
+temp/
+
+# =========================
+# CUDA / GPU (optional)
+# =========================
+*.cubin
+*.ptx
+
+# =========================
+# MISC
+# =========================
+*.bak
+*.old
+
+plots/

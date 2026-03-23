@@ -1,41 +1,34 @@
 import Extract_Wavelet_Coefficients as EX  # pyright: ignore[reportMissingImports]
 import numpy as np
 
-# ── Single import block: tensorflow.keras only ───────────────────────────────
-# FIX: removed the duplicate plain-keras imports that were silently overriding
-# each other (keras.models, keras.layers imported first, then tensorflow.keras
-# imported again below — only the second set was actually used).
 import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import regularizers
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import (Dense, Dropout, Activation, LSTM,
                                      BatchNormalization, Conv1D, MaxPooling1D)
+from tensorflow.keras.callbacks import ReduceLROnPlateau
 
-from sklearn.preprocessing import label_binarize
 from sklearn.metrics import (confusion_matrix, f1_score, matthews_corrcoef,
                              precision_score, recall_score, accuracy_score,
                              cohen_kappa_score, roc_curve, auc, roc_auc_score)
 from sklearn.model_selection import StratifiedKFold
 from sklearn.utils.class_weight import compute_class_weight
 import matplotlib.pyplot as plt
+import os
 
 
 def plot_roc_per_fold(y_true, y_pred_proba, fold_num):
-    import os
     os.makedirs("plots", exist_ok=True)
     fpr, tpr, _ = roc_curve(y_true, y_pred_proba)
-    roc_auc = auc(fpr, tpr)
-
+    roc_auc_val = auc(fpr, tpr)
     plt.figure()
-    lw = 2
-    plt.plot(fpr, tpr, color='darkorange', lw=lw,
-             label='ROC curve (area = %0.2f)' % roc_auc)
-    plt.plot([0, 1], [0, 1], color='navy', lw=lw, linestyle='--')
-    plt.xlim([0.0, 1.0])
-    plt.ylim([0.0, 1.05])
-    plt.xlabel('False Positive Rate',  fontdict={'fontsize': 20, 'fontweight': 'bold'})
-    plt.ylabel('True Positive Rate',   fontdict={'fontsize': 20, 'fontweight': 'bold'})
+    plt.plot(fpr, tpr, color='darkorange', lw=2,
+             label='ROC curve (area = %0.2f)' % roc_auc_val)
+    plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
+    plt.xlim([0.0, 1.0]); plt.ylim([0.0, 1.05])
+    plt.xlabel('False Positive Rate', fontdict={'fontsize': 20, 'fontweight': 'bold'})
+    plt.ylabel('True Positive Rate',  fontdict={'fontsize': 20, 'fontweight': 'bold'})
     plt.title('Receiver Operating Characteristic',
               fontdict={'fontsize': 20, 'fontweight': 'bold'})
     plt.legend(loc="lower right", prop={'size': 16, 'weight': 'bold'})
@@ -44,34 +37,96 @@ def plot_roc_per_fold(y_true, y_pred_proba, fold_num):
     plt.close()
 
 
+def build_chbmit_model(input_len):
+    model = Sequential()
+
+    # ── Conv block 1 — Table 2 row 1: F=16, k=2, s=2 ─────────────────────
+    model.add(Conv1D(filters=16, kernel_size=2,
+                     input_shape=(input_len, 1),
+                     strides=2, padding="valid"))
+    model.add(BatchNormalization())
+    model.add(Activation('relu'))
+
+    # ── Conv block 2 — Table 2 row 4: F=32, k=2, s=2 ─────────────────────
+    model.add(Conv1D(filters=32, kernel_size=2, strides=2, padding="valid"))
+    model.add(BatchNormalization())
+    model.add(Activation('relu'))
+
+    # ── Conv block 3 — Table 2 row 7: F=64, k=2, s=2 ─────────────────────
+    model.add(Conv1D(filters=64, kernel_size=2, strides=2, padding="valid"))
+    model.add(BatchNormalization())
+    model.add(Activation('relu'))
+
+    # ── Pool 1 — Table 2 row 10: pool_size=3, strides=2 ──────────────────
+    # 9 → floor((9-3)/2)+1 = 4
+    model.add(MaxPooling1D(pool_size=3, strides=2, padding="valid"))
+
+    # ── Conv block 4 — Table 2 row 11: F=128, k=1, s=1 ───────────────────
+    # Sequence stays at 4
+    model.add(Conv1D(filters=128, kernel_size=1, strides=1, padding="valid"))
+    model.add(BatchNormalization())
+    model.add(Activation('relu'))
+
+    # ── NO Pool 2 here — would reduce 4 → 1, killing LSTM temporal context ─
+    # Paper states architecture is flexible for different input lengths.
+    # With a 72-scalar input we skip this pooling to preserve sequence length.
+
+    # ── Conv block 5 — Table 2 row 15: F=256, k=1, s=1 ───────────────────
+    # Sequence stays at 4
+    model.add(Conv1D(filters=256, kernel_size=1, strides=1, padding="valid"))
+    model.add(BatchNormalization())
+    model.add(Activation('relu'))
+
+    # ── Conv block 6 — Table 2 row 19: F=512, k=1, s=1 ───────────────────
+    # Sequence stays at 4
+    model.add(Conv1D(filters=512, kernel_size=1, strides=1, padding="valid"))
+    model.add(BatchNormalization())
+    model.add(Activation('relu'))
+
+    # ── LSTM — Table 2 row 23: Units=200 ─────────────────────────────────
+    # Input: (batch, 4, 512) — LSTM processes 4 time-steps
+    # Output: (batch, 200)
+    model.add(LSTM(200))
+
+    # ── Dense — Table 2 row 25: Dense(64, ReLU, L2=0.03) ─────────────────
+    model.add(Dense(units=64, activation="relu",
+                    kernel_regularizer=regularizers.L2(0.03)))
+
+    # ── Dropout — Table 2 row 26: Rate=0.4 ───────────────────────────────
+    model.add(Dropout(rate=0.4))
+
+    # ── Output — Table 2 rows 27-28: Dense(1) + sigmoid ──────────────────
+    model.add(Dense(1))
+    model.add(Activation('sigmoid'))
+
+    return model
+
+
 def binary_model(data, label, dataset_choice):
-    import os
     os.makedirs("plots", exist_ok=True)
 
-    # ── Hyperparameters (paper: Experimental Setup section + Table 2) ────────
+    # ── Hyperparameters from the paper (Experimental Setup section) ────────
+    # "batch size of 60, 300 epochs, validation split of 0.15"
+    # "10-fold cross-validation"
+    # "learning rate of 0.0001"
     batch_size        = 60
-    nb_epoch          = 50
-    num_k_fold_splits = 3
-    validation_split  = 0.15   # paper: "15% is further split for validation"
-    # ─────────────────────────────────────────────────────────────────────────
+    nb_epoch          = 300
+    num_k_fold_splits = 10
+    validation_split  = 0.15
+    # ───────────────────────────────────────────────────────────────────────
 
     data  = np.array(data)
-    label = np.array(label)
+    label = np.array(label).astype(int)
 
+    # Paper: "data is randomly shuffled before training and at end of each epoch"
     kf = StratifiedKFold(n_splits=num_k_fold_splits, shuffle=True, random_state=2)
 
-    specificity_scores = []
-    sensitivity_scores = []
-    npv_scores         = []
-    ppv_scores         = []
-    f1_scores          = []
-    mcc_scores         = []
-    accuracy_scores    = []
-    precision_scores   = []
-    recall_scores      = []
-    auc_scores         = []
-    Kappa_scores       = []
-    GDR_scores         = []
+    specificity_scores, sensitivity_scores = [], []
+    npv_scores, ppv_scores                 = [], []
+    f1_scores, mcc_scores                  = [], []
+    accuracy_scores, precision_scores      = [], []
+    recall_scores, auc_scores              = [], []
+    Kappa_scores, GDR_scores               = [], []
 
     fold_num = 0
     history  = None
@@ -84,100 +139,37 @@ def binary_model(data, label, dataset_choice):
         y_tr_va, y_test = label[train_index], label[test_index]
 
         if dataset_choice == 'chbmit':
-            # (N, 18, 512, 1) → (N, 18, 512)
+            # (N, 18, 1024, 1) → (N, 18, 1024) — squeeze the trailing dim added by load
             X_train   = X_tr_va.squeeze(-1)
             X_test_sq = X_test.squeeze(-1)
             Y_train   = y_tr_va
             Y_test    = y_test
 
-            # DWT: 18 channels × 4 subband energies = 72 features per sample
-            # EX.extract_coeffs_BONN_CHB now uses 'db3' and returns (N, 72)
+            # DWT energy features: 18 channels × 4 subband energies = 72 scalars
+            # Paper Fig 4b: "72×1 for MIT-CHB Dataset"
+            # Wavelet: db1, level 3 (paper Results section p.13: "db1 mother wavelet")
             features_Train = EX.extract_coeffs_BONN_CHB(X_train,   level=3)
             features_Test  = EX.extract_coeffs_BONN_CHB(X_test_sq, level=3)
 
-            n_features = features_Train.shape[1]   # should be 72
+            n_features = features_Train.shape[1]   # 72
             print(f"Fold {fold_num+1} — features shape: {features_Train.shape}")
 
             # Reshape to (N, 72, 1) for Conv1D input
             EEG_Train = features_Train.reshape(features_Train.shape[0], n_features, 1)
             EEG_Test  = features_Test.reshape( features_Test.shape[0],  n_features, 1)
 
-        # ── Class-weighted loss ───────────────────────────────────────────────
+        # ── Class-weighted loss (paper: addresses CHB-MIT class imbalance) ──
         classes           = np.unique(Y_train)
         cw                = compute_class_weight(class_weight='balanced',
                                                  classes=classes, y=Y_train)
         class_weight_dict = dict(zip(classes.astype(int), cw))
         print(f"  Class weights: {class_weight_dict}")
 
-        # ── Architecture (paper Table 2, adapted for 72-feature CHB-MIT input)
-        #
-        # Dimension trace for 72-feature input:
-        #   72 → Conv1(k=2,s=2) → 36 → Conv2(k=2,s=2) → 18
-        #      → Conv3(k=2,s=2) →  9 → Pool1(p=3,s=2) →  4
-        #      → Conv4(k=1,s=1) →  4 → Pool2(p=3,s=2) →  1
-        #
-        # Pool2 reduces to 1 time-step → LSTM(200) returns shape (batch, 200)
-        # Paper Table 2 (BONN input 4100×1) has 4 pooling layers; with the
-        # 72-feature CHB-MIT input only 2 pooling layers are needed to reach
-        # a manageable spatial dimension before the LSTM.  The paper notes the
-        # architecture is flexible and adapts to different input lengths.
-        # ─────────────────────────────────────────────────────────────────────
+        # ── Build model ─────────────────────────────────────────────────────
+        if dataset_choice == 'chbmit':
+            model = build_chbmit_model(input_len=n_features)
 
-        model = Sequential()
-
-        # Conv block 1  — 72 → 36
-        model.add(Conv1D(filters=16, kernel_size=2,
-                         input_shape=(EEG_Train.shape[1], 1),
-                         strides=2, padding="valid"))
-        model.add(BatchNormalization())   # FIX: removed axis=2 (default -1 is correct)
-        model.add(Activation('relu'))
-
-        # Conv block 2  — 36 → 18
-        model.add(Conv1D(filters=32, kernel_size=2, strides=2, padding="valid"))
-        model.add(BatchNormalization())
-        model.add(Activation('relu'))
-
-        # Conv block 3  — 18 → 9
-        model.add(Conv1D(filters=64, kernel_size=2, strides=2, padding="valid"))
-        model.add(BatchNormalization())
-        model.add(Activation('relu'))
-
-        # Pool 1  — 9 → 4  (paper: pool_size=3, strides=2)
-        model.add(MaxPooling1D(pool_size=3, strides=2, padding="valid"))
-
-        # Conv block 4  — 4 → 4
-        model.add(Conv1D(filters=128, kernel_size=1, strides=1, padding="valid"))
-        model.add(BatchNormalization())
-        model.add(Activation('relu'))
-
-        # Pool 2  — 4 → 1  (pool_size=3, strides=2: floor((4-3)/2)+1 = 1)
-        model.add(MaxPooling1D(pool_size=3, strides=2, padding="valid"))
-
-        # Conv block 5  — 1 → 1
-        model.add(Conv1D(filters=256, kernel_size=1, strides=1, padding="valid"))
-        model.add(BatchNormalization())
-        model.add(Activation('relu'))
-
-        # Conv block 6  — 1 → 1
-        model.add(Conv1D(filters=512, kernel_size=1, strides=1, padding="valid"))
-        model.add(BatchNormalization())
-        model.add(Activation('relu'))
-
-        # LSTM — input (batch, 1, 512), output (batch, 200)
-        # return_sequences=False (default) → already returns (batch, 200)
-        model.add(LSTM(200))
-
-        # FIX: removed model.add(Flatten()) — LSTM already outputs a 1-D vector
-        # (batch, 200).  Flatten on a rank-2 tensor is a no-op in Keras but is
-        # misleading and can mask shape errors.
-
-        # Fully connected (paper Table 2, row 25)
-        model.add(Dense(units=64, activation="relu",
-                        kernel_regularizer=regularizers.L2(0.03)))
-        model.add(Dropout(rate=0.4))
-        model.add(Dense(1))
-        model.add(Activation('sigmoid'))
-
+        # Paper: "Adam optimization, learning rate of 0.0001"
         optimizer = keras.optimizers.Adam(learning_rate=0.0001)
         model.compile(loss='binary_crossentropy', optimizer=optimizer,
                       metrics=['acc'])
@@ -185,16 +177,32 @@ def binary_model(data, label, dataset_choice):
         if fold_num == 0:
             model.summary()
 
+        # ── Callbacks ───────────────────────────────────────────────────────
+        # Paper does not mention early stopping — model runs full 300 epochs.
+        # ReduceLROnPlateau helps stable convergence consistent with the paper's
+        # note that LR sensitivity is high for this model.
+        callbacks = [
+            ReduceLROnPlateau(
+                monitor='val_loss',
+                factor=0.5,
+                patience=20,
+                min_lr=1e-6,
+                verbose=1
+            )
+        ]
+
         history = model.fit(
             EEG_Train, Y_train,
             validation_split=validation_split,
             batch_size=batch_size,
             epochs=nb_epoch,
             class_weight=class_weight_dict,
+            callbacks=callbacks,
+            shuffle=True,   # paper: "data is randomly shuffled before training"
             verbose=1
         )
 
-        y_pred_proba = model.predict(EEG_Test)
+        y_pred_proba = model.predict(EEG_Test).flatten()
         y_pred       = (y_pred_proba > 0.5).astype(int)
 
         tn, fp, fn, tp = confusion_matrix(Y_test, y_pred).ravel()
