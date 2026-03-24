@@ -1,0 +1,37 @@
+name: eeg
+
+channels:
+  - conda-forge
+  - defaults
+
+dependencies:
+  # ── Python ────────────────────────────────────────────────────────────────
+  - python=3.11
+
+  # ── Core scientific stack ─────────────────────────────────────────────────
+  - numpy
+  - scipy
+  - pandas
+  - matplotlib
+  - scikit-learn
+
+  # ── EEG processing ────────────────────────────────────────────────────────
+  - mne
+
+  # ── Data handling ─────────────────────────────────────────────────────────
+  - pyarrow              # for reading .parquet files
+  - h5py                 # HDF5 / .h5 model saving
+
+  # ── Utilities ─────────────────────────────────────────────────────────────
+  - tqdm                 # progress bars
+  - seaborn              # plotting
+  - joblib               # model persistence / parallelism
+
+  # ── Pip packages (not available via conda) ────────────────────────────────
+  - pip
+  - pip:
+    - tensorflow
+    - keras
+    - tensorboard
+    - tensorflow-datasets
+    - fastparquet
