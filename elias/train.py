@@ -57,18 +57,6 @@ assert X_train.shape[1:] == INPUT_SHAPE, (
 )
 
 
-while True:
-    choice = input("Continue? (y/n): ").strip().lower()
-    
-    if choice in ['y', 'yes']:
-        print("Continuing...")
-        break
-    elif choice in ['n', 'no']:
-        print("Exiting...")
-        exit()
-    else:
-        print("Invalid input. Please enter 'y' or 'n'.")
-
 # ══════════════════════════════════════════════════════════════════════════════
 # 2. HANDLE CLASS IMBALANCE
 # non-seizure windows will far outnumber seizure windows -- weight them equally
