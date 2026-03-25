@@ -47,6 +47,11 @@ y_train = np.load(os.path.join(DATA_DIR, "y_train.npy"), allow_pickle=True)
 X_val = np.load(os.path.join(DATA_DIR, "X_val.npy"), allow_pickle=True)
 y_val = np.load(os.path.join(DATA_DIR, "y_val.npy"), allow_pickle=True)
 
+# Convert to float
+X_train = np.array(X_train.tolist(), dtype=np.float32)
+y_train = np.array(y_train.tolist(), dtype=np.int64)  # or np.int64 for class labels
+X_val   = np.array(X_val.tolist(),   dtype=np.float32)
+y_val   = np.array(y_val.tolist(),   dtype=np.int64)
 
 print(f"X_train : {X_train.shape}  |  seizure: {y_train.sum()} ({100*y_train.mean():.1f}%)")
 print(f"X_val   : {X_val.shape}    |  seizure: {y_val.sum()} ({100*y_val.mean():.1f}%)")
