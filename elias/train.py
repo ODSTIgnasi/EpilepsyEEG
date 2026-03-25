@@ -41,11 +41,11 @@ print("=" * 60)
 #train = np.load(os.path.join(DATA_DIR, "train.npz"))
 #val   = np.load(os.path.join(DATA_DIR, "val.npz"))
 
-X_train = np.load(os.path.join(DATA_DIR, "X_train.npy"))
-y_train = np.load(os.path.join(DATA_DIR, "y_train.npy"))
+X_train = np.load(os.path.join(DATA_DIR, "X_train.npy"), allow_pickle=True)
+y_train = np.load(os.path.join(DATA_DIR, "y_train.npy"), allow_pickle=True)
 
-X_val = np.load(os.path.join(DATA_DIR, "X_val.npy"))
-y_val = np.load(os.path.join(DATA_DIR, "y_val.npy"))
+X_val = np.load(os.path.join(DATA_DIR, "X_val.npy"), allow_pickle=True)
+y_val = np.load(os.path.join(DATA_DIR, "y_val.npy"), allow_pickle=True)
 
 
 print(f"X_train : {X_train.shape}  |  seizure: {y_train.sum()} ({100*y_train.mean():.1f}%)")
@@ -56,6 +56,18 @@ assert X_train.shape[1:] == INPUT_SHAPE, (
     f"Shape mismatch: data is {X_train.shape[1:]} but model expects {INPUT_SHAPE}"
 )
 
+
+while True:
+    choice = input("Continue? (y/n): ").strip().lower()
+    
+    if choice in ['y', 'yes']:
+        print("Continuing...")
+        break
+    elif choice in ['n', 'no']:
+        print("Exiting...")
+        exit()
+    else:
+        print("Invalid input. Please enter 'y' or 'n'.")
 
 # ══════════════════════════════════════════════════════════════════════════════
 # 2. HANDLE CLASS IMBALANCE
