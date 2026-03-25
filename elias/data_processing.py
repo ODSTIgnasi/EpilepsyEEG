@@ -10,25 +10,39 @@ Based on dataset documentation:
       - filename_interval:  seizure ID within a file
       - global_interval:    seizure ID across all files for the patient
 
-Outputs a context-aware stratified train/val/test split ready for CNN training.
+Outputs an augmentation-aware train/val/test split ready for CNN training.
 
 AUGMENTATION-AWARE SPLITTING
 ─────────────────────────────
-Because the dataset is already augmented, each window at index i carries
-information from neighbouring windows. A naive random split would leak
-augmented neighbours of a test window into the training set.
+Because the dataset is pre-augmented, windows near a seizure window carry
+leaked information from their neighbours. A naive random split would let
+augmented neighbours of a test window bleed into training.
 
-Strategy
-  1. Pick val/test *seed* windows via stratified sampling (on class label).
-  2. For every seed window, compute a contamination zone of ±CONTEXT_SIZE
-     windows *within the same recording file* (filename column).
-     Cross-file boundaries are respected — window 0 of file B is NOT
-     a neighbour of the last window of file A.
-  3. All indices inside any contamination zone are *excluded* from training;
-     they are neither train, val, nor test.
-  4. The seed windows themselves become the val/test sets.
+Strategy (faithful to the provided pseudocode):
 
-This guarantees zero augmentation leakage across splits.
+  all_windows
+  train = all_windows
+  test  = []
+
+  for every seizure window (class == 1) in a test episode:
+      left_samples  = min(5, position_within_episode)
+      right_samples = min(5, episode_length - 1 - position_within_episode)
+
+      pull left_samples  neighbours → test, remove from train
+      pull the window itself        → test, remove from train
+      pull right_samples neighbours → test, remove from train
+
+  Non-seizure windows never explicitly iterated → stay in train unless
+  pulled as a context neighbour of a seizure window.
+
+Neighbour boundary: global_interval
+  The ±5 walk is bounded by global_interval so it never crosses episode
+  boundaries even if adjacent rows in the array belong to different episodes.
+
+Episode selection for test:
+  A random 20% of unique global_interval IDs are designated as test episodes.
+  All remaining episodes (and their non-neighbour non-seizure windows) form
+  the train pool, from which 10% is carved as a stratified val set.
 """
 
 import numpy as np
@@ -55,12 +69,12 @@ CHB_CHANNELS = [
 
 SFREQ        = 128.0   # data has been downsampled to 128 Hz
 SCALE        = 1e-6    # uV → V for MNE
-CONTEXT_SIZE = 5       # number of neighbouring windows to quarantine on each side
+CONTEXT_SIZE = 5       # neighbours pulled left and right of each seizure window
 
 # ── Split ratios ───────────────────────────────────────────────────────────────
-TEST_SIZE   = 0.2    # 20 % test  (of total windows)
-VAL_SIZE    = 0.1    # 10 % val   (of total windows)
-RANDOM_SEED = 42
+TEST_EPISODE_FRAC = 0.20   # fraction of unique global_interval IDs → test
+VAL_SIZE          = 0.10   # fraction of remaining train windows → val
+RANDOM_SEED       = 42
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -69,16 +83,12 @@ RANDOM_SEED = 42
 
 def load_patient(eeg_path, meta_path, subject_id):
 
-    # ── Load EEG windows ──────────────────────────────────────────────────────
     npz     = np.load(eeg_path, allow_pickle=True)
-    eeg_win = npz["EEG_win"]          # shape: (n_windows, 21, 128)
-
+    eeg_win = npz["EEG_win"]          # (n_windows, 21, 128)
     print(f"  EEG_win shape : {eeg_win.shape}")
 
-    # ── Load metadata ─────────────────────────────────────────────────────────
     metadata = pd.read_parquet(meta_path)
 
-    # Sanity check: number of windows must match number of metadata rows
     assert len(metadata) == eeg_win.shape[0], (
         f"[{subject_id}] Mismatch: {eeg_win.shape[0]} windows vs "
         f"{len(metadata)} metadata rows"
@@ -118,108 +128,131 @@ def build_epochs(eeg_win, y, subject_id):
 # ══════════════════════════════════════════════════════════════════════════════
 # CORE: augmentation-aware split
 #
+# Faithfully implements the pseudocode:
+#
+#   all_windows
+#   train = all_windows
+#   test  = []
+#   for window in all_windows:           ← only seizure windows in test episodes
+#       left_samples  = 5
+#       right_samples = 5
+#       if window_index < 5:
+#           left_samples = window_index  ← position within episode, not global
+#       if window_index > (len - 5):
+#           right_samples = len - window_index
+#       for i in left_samples:
+#           test.append / train.remove
+#       for j in right_samples:
+#           test.append / train.remove
+#
 # Parameters
 # ──────────────────────────────────────────────────────────────────────────────
-# y              : integer label array, shape (N,)
-# filenames      : string array, shape (N,) — the "filename" column from metadata.
-#                  Windows from *different* files are never neighbours.
-# test_size      : fraction of ALL windows to use as test seeds
-# val_size       : fraction of ALL windows to use as val seeds
-# context_size   : half-width of the quarantine zone (default 5)
-# random_seed    : for reproducibility
+# y                  : int array (N,)  — class labels (0 / 1)
+# global_intervals   : array   (N,)  — global_interval per window
+# test_episode_frac  : fraction of unique seizure episode IDs → test
+# val_size           : fraction of remaining train windows → val
+# context_size       : half-width of the neighbour context  (default 5)
+# random_seed        : for reproducibility
 #
 # Returns
 # ──────────────────────────────────────────────────────────────────────────────
-# idx_train, idx_val, idx_test  — index arrays into the original N windows
-# idx_quarantine                — windows excluded from every split
+# idx_train, idx_val, idx_test  — sorted index arrays into the N-window dataset
 # ══════════════════════════════════════════════════════════════════════════════
 
-def context_aware_split(
+def episode_aware_split(
     y,
-    filenames,
-    test_size=0.2,
-    val_size=0.1,
+    global_intervals,
+    test_episode_frac=0.20,
+    val_size=0.10,
     context_size=5,
     random_seed=42,
 ):
-    N      = len(y)
-    all_idx = np.arange(N)
+    N = len(y)
 
-    # ── Step 1: stratified sample of test seeds ──────────────────────────────
-    n_test = int(round(N * test_size))
-    _, idx_test = train_test_split(
-        all_idx,
-        test_size=n_test,
-        random_state=random_seed,
-        stratify=y,
+    # ── Step 1: randomly choose which seizure episodes go to test ─────────────
+    seizure_mask     = y == 1
+    seizure_episodes = np.unique(global_intervals[seizure_mask])
+    n_test_episodes  = max(1, int(round(len(seizure_episodes) * test_episode_frac)))
+
+    rng = np.random.default_rng(random_seed)
+    test_episodes = set(
+        rng.choice(seizure_episodes, size=n_test_episodes, replace=False).tolist()
     )
-    idx_test = set(idx_test.tolist())
 
-    # ── Step 2: build per-file index ranges ──────────────────────────────────
-    # Maps filename → sorted list of global indices belonging to that file.
-    # Used to clip the context window at file boundaries.
-    file_to_indices: dict[str, list[int]] = {}
-    for i, fname in enumerate(filenames):
-        file_to_indices.setdefault(fname, []).append(i)
+    print(f"\n  Total seizure episodes : {len(seizure_episodes)}")
+    print(f"  Episodes → test        : {n_test_episodes}  {sorted(test_episodes)}")
 
-    # Sort each file's index list (they should already be sorted, but be safe)
-    for fname in file_to_indices:
-        file_to_indices[fname].sort()
+    # ── Step 2: build lookup  global_interval → ordered list of global indices
+    # Built over ALL windows in a test episode (both seizure and non-seizure),
+    # because non-seizure windows adjacent to seizure windows can be neighbours.
+    episode_to_indices: dict = {}
+    for gidx in range(N):
+        ep = global_intervals[gidx]
+        if ep in test_episodes:
+            episode_to_indices.setdefault(ep, []).append(gidx)
+    for ep in episode_to_indices:
+        episode_to_indices[ep].sort()
 
-    # Reverse map: global index → position within its file
-    idx_to_file_pos: dict[int, tuple[str, int]] = {}
-    for fname, indices in file_to_indices.items():
-        for pos, gidx in enumerate(indices):
-            idx_to_file_pos[gidx] = (fname, pos)
+    # ── Step 3: pseudocode loop ───────────────────────────────────────────────
+    # train starts as the full set; items are moved to test as we go.
+    train_set = set(range(N))
+    test_set  = set()
 
-    def get_context_zone(seed_idx: int) -> set[int]:
-        """Return all global indices in the ±context_size zone of seed_idx,
-        respecting file boundaries."""
-        fname, pos = idx_to_file_pos[seed_idx]
-        file_indices = file_to_indices[fname]
-        lo = max(0,           pos - context_size)
-        hi = min(len(file_indices) - 1, pos + context_size)
-        return set(file_indices[lo : hi + 1])
+    for ep, ep_indices in episode_to_indices.items():
+        ep_len = len(ep_indices)   # len(all_windows) in the pseudocode
 
-    # ── Step 3: compute contamination zone for test seeds ────────────────────
-    test_zone: set[int] = set()
-    for seed in idx_test:
-        test_zone |= get_context_zone(seed)
+        for pos, window_index in enumerate(ep_indices):
+            # Only trigger context pull on seizure windows (class == 1)
+            if y[window_index] != 1:
+                continue
 
-    # ── Step 4: stratified sample of val seeds from *non-test, non-zone* pool ─
-    eligible_for_val = np.array([
-        i for i in all_idx
-        if i not in idx_test and i not in test_zone
-    ])
-    y_eligible = y[eligible_for_val]
+            # ── boundary checks from pseudocode ──────────────────────────────
+            # "window_index" in the pseudocode refers to position within the
+            # episode list (pos), not the global array index.
+            left_samples  = context_size
+            right_samples = context_size
 
-    n_val = int(round(N * val_size))
+            if pos < context_size:                    # window_index < 5
+                left_samples = pos
+
+            if pos > (ep_len - 1 - context_size):    # window_index > (len - 5)
+                right_samples = ep_len - 1 - pos
+
+            # left neighbours  (pseudocode: for i in left_samples)
+            for i in range(1, left_samples + 1):
+                nb = ep_indices[pos - i]
+                test_set.add(nb)
+                train_set.discard(nb)
+
+            # the seizure window itself
+            test_set.add(window_index)
+            train_set.discard(window_index)
+
+            # right neighbours (pseudocode: for j in right_samples)
+            for j in range(1, right_samples + 1):
+                nb = ep_indices[pos + j]
+                test_set.add(nb)
+                train_set.discard(nb)
+
+    # ── Step 4: carve val from remaining train via stratified sampling ─────────
+    train_arr = np.array(sorted(train_set))
+    y_train   = y[train_arr]
+
     _, idx_val_local = train_test_split(
-        np.arange(len(eligible_for_val)),
-        test_size=n_val,
+        np.arange(len(train_arr)),
+        test_size=val_size,
         random_state=random_seed,
-        stratify=y_eligible,
+        stratify=y_train,
     )
-    idx_val = set(eligible_for_val[idx_val_local].tolist())
 
-    # ── Step 5: compute contamination zone for val seeds ─────────────────────
-    val_zone: set[int] = set()
-    for seed in idx_val:
-        val_zone |= get_context_zone(seed)
+    val_global = set(train_arr[idx_val_local].tolist())
+    train_set  = train_set - val_global
 
-    # ── Step 6: quarantine = union of both zones minus the seeds themselves ──
-    quarantine = (test_zone | val_zone) - idx_test - idx_val
+    idx_train = np.array(sorted(train_set))
+    idx_val   = np.array(sorted(val_global))
+    idx_test  = np.array(sorted(test_set))
 
-    # ── Step 7: training set = everything not in test, val, or quarantine ────
-    idx_train = set(all_idx.tolist()) - idx_test - idx_val - quarantine
-
-    # Convert to sorted arrays
-    idx_train     = np.array(sorted(idx_train))
-    idx_val       = np.array(sorted(idx_val))
-    idx_test      = np.array(sorted(idx_test))
-    idx_quarantine = np.array(sorted(quarantine))
-
-    return idx_train, idx_val, idx_test, idx_quarantine
+    return idx_train, idx_val, idx_test
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -303,20 +336,19 @@ print(f"\nX shape after adding channel dim: {X.shape}")
 
 # ══════════════════════════════════════════════════════════════════════════════
 # AUGMENTATION-AWARE TRAIN / VAL / TEST SPLIT
-#
-# The "filename" column is used as the file boundary marker so that the
-# ±CONTEXT_SIZE quarantine zone never crosses recording boundaries.
 # ══════════════════════════════════════════════════════════════════════════════
 
 print("\n" + "=" * 60)
 print("AUGMENTATION-AWARE TRAIN / VAL / TEST SPLIT")
-print(f"Context zone    : ±{CONTEXT_SIZE} windows per seed (file-bounded)")
+print(f"Context zone   : ±{CONTEXT_SIZE} windows per seizure window (global_interval-bounded)")
+print(f"Test episodes  : {int(TEST_EPISODE_FRAC*100)}% of unique global_interval IDs (random)")
+print(f"Val fraction   : {int(VAL_SIZE*100)}% of remaining train windows (stratified)")
 print("=" * 60)
 
-idx_train, idx_val, idx_test, idx_quarantine = context_aware_split(
+idx_train, idx_val, idx_test = episode_aware_split(
     y=y,
-    filenames=metadata["filename"].values,
-    test_size=TEST_SIZE,
+    global_intervals=metadata["global_interval"].values,
+    test_episode_frac=TEST_EPISODE_FRAC,
     val_size=VAL_SIZE,
     context_size=CONTEXT_SIZE,
     random_seed=RANDOM_SEED,
@@ -330,28 +362,37 @@ meta_train = metadata.iloc[idx_train].reset_index(drop=True)
 meta_val   = metadata.iloc[idx_val].reset_index(drop=True)
 meta_test  = metadata.iloc[idx_test].reset_index(drop=True)
 
-total      = len(y)
-quarantine_pct = 100 * len(idx_quarantine) / total
+total     = len(y)
+accounted = len(idx_train) + len(idx_val) + len(idx_test)
 
-print(f"Train      : {len(idx_train):>7} windows  "
-      f"| seizure: {y_train.sum()} ({100*y_train.mean():.1f}%)")
-print(f"Val        : {len(idx_val):>7} windows  "
-      f"| seizure: {y_val.sum()} ({100*y_val.mean():.1f}%)")
-print(f"Test       : {len(idx_test):>7} windows  "
-      f"| seizure: {y_test.sum()} ({100*y_test.mean():.1f}%)")
-print(f"Quarantine : {len(idx_quarantine):>7} windows  "
-      f"({quarantine_pct:.1f}% of total — excluded from all splits)")
-print(f"Total used : {len(idx_train)+len(idx_val)+len(idx_test)+len(idx_quarantine)} "
-      f"/ {total}")
+print(f"\nTrain : {len(idx_train):>7} windows  "
+      f"| seizure: {y_train.sum()} ({100*y_train.mean():.2f}%)")
+print(f"Val   : {len(idx_val):>7} windows  "
+      f"| seizure: {y_val.sum()} ({100*y_val.mean():.2f}%)")
+print(f"Test  : {len(idx_test):>7} windows  "
+      f"| seizure: {y_test.sum()} ({100*y_test.mean():.2f}%)")
+print(f"Total : {accounted} / {total}  "
+      f"({'OK — all windows accounted for' if accounted == total else 'WARNING: mismatch!'})")
 
+# ── Disjointness + coverage sanity checks ─────────────────────────────────────
+s_train, s_val, s_test = set(idx_train), set(idx_val), set(idx_test)
+assert s_train.isdisjoint(s_val),  "FAIL: Train/Val overlap!"
+assert s_train.isdisjoint(s_test), "FAIL: Train/Test overlap!"
+assert s_val.isdisjoint(s_test),   "FAIL: Val/Test overlap!"
+assert accounted == total,         "FAIL: Windows missing — splits don't cover the dataset!"
+print("\n✓ All disjointness and coverage checks passed.")
 
-# ── Sanity checks ─────────────────────────────────────────────────────────────
-sets = [set(idx_train), set(idx_val), set(idx_test), set(idx_quarantine)]
-assert sets[0].isdisjoint(sets[1]), "Train/Val overlap detected!"
-assert sets[0].isdisjoint(sets[2]), "Train/Test overlap detected!"
-assert sets[0].isdisjoint(sets[3]), "Train/Quarantine overlap detected!"
-assert sets[1].isdisjoint(sets[2]), "Val/Test overlap detected!"
-print("\n✓ All split disjointness checks passed.")
+# ── Episode leakage check ──────────────────────────────────────────────────────
+test_eps  = set(meta_test.loc [meta_test ["class"] == 1, "global_interval"].unique())
+train_eps = set(meta_train.loc[meta_train["class"] == 1, "global_interval"].unique())
+val_eps   = set(meta_val.loc  [meta_val  ["class"] == 1, "global_interval"].unique())
+
+print(f"\nSeizure episodes → test  : {sorted(test_eps)}")
+print(f"Seizure episodes → train : {sorted(train_eps)}")
+print(f"Seizure episodes → val   : {sorted(val_eps)}")
+assert test_eps.isdisjoint(train_eps), \
+    "FAIL: Same seizure episode appears in both train and test!"
+print("✓ No seizure episode leakage between train and test.")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -366,13 +407,9 @@ meta_train.to_parquet(os.path.join(OUT_DIR, "meta_train.parquet"), index=False)
 meta_val.to_parquet(  os.path.join(OUT_DIR, "meta_val.parquet"),   index=False)
 meta_test.to_parquet( os.path.join(OUT_DIR, "meta_test.parquet"),  index=False)
 
-# Save quarantine indices for auditing
-np.save(os.path.join(OUT_DIR, "idx_quarantine.npy"), idx_quarantine)
-
 print(f"\nSplits saved to: {OUT_DIR}")
 print("  train.npz / val.npz / test.npz      ← X and y arrays, shape (n, 21, 128, 1)")
 print("  meta_train/val/test.parquet         ← metadata per split")
-print("  idx_quarantine.npy                  ← global indices of quarantined windows")
 print()
 print("To load in your training script:")
 print("  train = np.load('.../train.npz')")
