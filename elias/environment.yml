@@ -1,37 +1,40 @@
-name: eeg
+name: EEG
 
 channels:
   - conda-forge
   - defaults
 
 dependencies:
-  # ── Python ────────────────────────────────────────────────────────────────
-  - python=3.11
+  # ── Python (more stable for TF + clusters) ────────────────────────────────
+  - python=3.10
 
-  # ── Core scientific stack ─────────────────────────────────────────────────
-  - numpy
+  # ── Core scientific stack ────────────────────────────────────────────────
+  - numpy<2.0
   - scipy
   - pandas
   - matplotlib
   - scikit-learn
 
-  # ── EEG processing ────────────────────────────────────────────────────────
+  # ── EEG processing ───────────────────────────────────────────────────────
   - mne
 
-  # ── Data handling ─────────────────────────────────────────────────────────
-  - pyarrow              # for reading .parquet files
-  - h5py                 # HDF5 / .h5 model saving
+  # ── Data handling ────────────────────────────────────────────────────────
+  - pyarrow
+  - h5py
 
-  # ── Utilities ─────────────────────────────────────────────────────────────
-  - tqdm                 # progress bars
-  - seaborn              # plotting
-  - joblib               # model persistence / parallelism
+  # ── Utilities ────────────────────────────────────────────────────────────
+  - tqdm
+  - seaborn
+  - joblib
 
-  # ── Pip packages (not available via conda) ────────────────────────────────
+  # 🔑 Fix for your GLIBCXX error
+  - libstdcxx-ng
+
+  # ── Pip packages ─────────────────────────────────────────────────────────
   - pip
   - pip:
-    - tensorflow
-    - keras
-    - tensorboard
-    - tensorflow-datasets
-    - fastparquet
+      - tensorflow>=2.15
+      - keras
+      - tensorboard
+      - tensorflow-datasets
+      - fastparquet
