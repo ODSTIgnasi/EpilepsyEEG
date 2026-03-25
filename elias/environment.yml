@@ -1,40 +1,27 @@
-name: EEG
+name: EEG_Elias
 
 channels:
   - conda-forge
   - defaults
 
 dependencies:
-  # ── Python (more stable for TF + clusters) ────────────────────────────────
-  - python=3.10
+  # ── Python ────────────────────────────────────────────────────────────────
+  - python=3.11
 
-  # ── Core scientific stack ────────────────────────────────────────────────
-  - numpy<2.0
+  # ── Core scientific stack ─────────────────────────────────────────────────
+  - numpy
   - scipy
   - pandas
   - matplotlib
+  - seaborn
   - scikit-learn
 
-  # ── EEG processing ───────────────────────────────────────────────────────
+  # ── Deep learning ────────────────────────────────────────────────────────
+  - pytorch
+  - torchvision
+  - torchaudio
+  - cudatoolkit=12.1   # Change if your CUDA version is different
+  - tensorflow         # Keras is included in TF >= 2.x
+
+  # ── EEG signal processing ────────────────────────────────────────────────
   - mne
-
-  # ── Data handling ────────────────────────────────────────────────────────
-  - pyarrow
-  - h5py
-
-  # ── Utilities ────────────────────────────────────────────────────────────
-  - tqdm
-  - seaborn
-  - joblib
-
-  # 🔑 Fix for your GLIBCXX error
-  - libstdcxx-ng
-
-  # ── Pip packages ─────────────────────────────────────────────────────────
-  - pip
-  - pip:
-      - tensorflow>=2.15
-      - keras
-      - tensorboard
-      - tensorflow-datasets
-      - fastparquet
