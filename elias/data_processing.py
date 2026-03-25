@@ -397,20 +397,29 @@ print("✓ No seizure episode leakage between train and test.")
 
 # ══════════════════════════════════════════════════════════════════════════════
 # SAVE SPLITS
+# np.savez_compressed is avoided here — it recompresses large arrays in-process
+# and can hang for tens of minutes on datasets of this size.
+# Instead we save X and y as separate raw .npy files (mmap-friendly, instant
+# load) and keep metadata in parquet as before.
 # ══════════════════════════════════════════════════════════════════════════════
-
-np.savez_compressed(os.path.join(OUT_DIR, "train.npz"), X=X_train, y=y_train)
-np.savez_compressed(os.path.join(OUT_DIR, "val.npz"),   X=X_val,   y=y_val)
-np.savez_compressed(os.path.join(OUT_DIR, "test.npz"),  X=X_test,  y=y_test)
-
-meta_train.to_parquet(os.path.join(OUT_DIR, "meta_train.parquet"), index=False)
-meta_val.to_parquet(  os.path.join(OUT_DIR, "meta_val.parquet"),   index=False)
-meta_test.to_parquet( os.path.join(OUT_DIR, "meta_test.parquet"),  index=False)
-
+ 
+for split_name, X_split, y_split, meta_split in [
+    ("train", X_train, y_train, meta_train),
+    ("val",   X_val,   y_val,   meta_val),
+    ("test",  X_test,  y_test,  meta_test),
+]:
+    print(f"Saving {split_name}...", end=" ", flush=True)
+    np.save(os.path.join(OUT_DIR, f"X_{split_name}.npy"), X_split)
+    np.save(os.path.join(OUT_DIR, f"y_{split_name}.npy"), y_split)
+    meta_split.to_parquet(os.path.join(OUT_DIR, f"meta_{split_name}.parquet"), index=False)
+    print("done.")
+ 
 print(f"\nSplits saved to: {OUT_DIR}")
-print("  train.npz / val.npz / test.npz      ← X and y arrays, shape (n, 21, 128, 1)")
+print("  X_train.npy / y_train.npy           ← training arrays, X shape (n, 21, 128, 1)")
+print("  X_val.npy   / y_val.npy")
+print("  X_test.npy  / y_test.npy")
 print("  meta_train/val/test.parquet         ← metadata per split")
 print()
 print("To load in your training script:")
-print("  train = np.load('.../train.npz')")
-print("  X_train, y_train = train['X'], train['y']")
+print("  X_train = np.load('.../X_train.npy', mmap_mode='r')  # avoids loading all into RAM")
+print("  y_train = np.load('.../y_train.npy')")
