@@ -38,11 +38,15 @@ print("=" * 60)
 print("LOADING DATA")
 print("=" * 60)
 
-train = np.load(os.path.join(DATA_DIR, "train.npz"))
-val   = np.load(os.path.join(DATA_DIR, "val.npz"))
+#train = np.load(os.path.join(DATA_DIR, "train.npz"))
+#val   = np.load(os.path.join(DATA_DIR, "val.npz"))
 
-X_train, y_train = train["X"], train["y"]
-X_val,   y_val   = val["X"],   val["y"]
+X_train = np.load(os.path.join(DATA_DIR, "X_train.npy"))
+y_train = np.load(os.path.join(DATA_DIR, "y_train.npy"))
+
+X_val = np.load(os.path.join(DATA_DIR, "X_val.npy"))
+y_val = np.load(os.path.join(DATA_DIR, "y_val.npy"))
+
 
 print(f"X_train : {X_train.shape}  |  seizure: {y_train.sum()} ({100*y_train.mean():.1f}%)")
 print(f"X_val   : {X_val.shape}    |  seizure: {y_val.sum()} ({100*y_val.mean():.1f}%)")
