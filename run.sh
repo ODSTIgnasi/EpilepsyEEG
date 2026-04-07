@@ -20,4 +20,4 @@ source /hhome/ricse01/miniconda3/bin/activate
 
 conda activate DL_LSTM
 
-python a.py
+python clustering.py

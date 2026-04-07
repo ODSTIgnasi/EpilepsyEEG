@@ -94,7 +94,7 @@ def process_patient(patient_folder, n_clusters=3):
 # 5. Main execution
 # ===============================
 if __name__ == "__main__":
-    dataset_path = "../Raw_dataset"  # root folder of dataset
+    dataset_path = "/hhome/ricse01/DL/Raw_Dataset/"  # root folder of dataset
     patient_id = "chb01"     # e.g., chb01, chb02...
 
     patient_folder = os.path.join(dataset_path, patient_id)
