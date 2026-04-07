@@ -20,3 +20,5 @@ Feature selection:
 1. Preprocessing try Transforms(ex. DWT)
 2. Cluster channels(ex., PCA) group by similarity
 3. Channel reeduction by impact
+
+To run in the cluster do a sbatch run.sh
