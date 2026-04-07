@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH -J TFM_EEG_Diffusion          # Job name
+#SBATCH -J DeepLearning_LSTM          # Job name
 #SBATCH -n 4                          # Number of CPU tasks (threads)
 #SBATCH -N 1                          # Number of nodes
 #SBATCH -D /hhome/ricse01/DL/EpilepsyEEG    # Working directory
